@@ -11,7 +11,6 @@ def normalize(x):
     x = np.array(x)
     return (x - x.min()) / (np.ptp(x))
 
-
 # load data
 X_train, y_train, X_test, y_test = load.load_sample_dataset()
 
@@ -27,9 +26,13 @@ y_test = (lambda l: [item for sublist in l for item in sublist])(y_test)
 y_train = np.eye(characters)[y_train]
 y_test = np.eye(characters)[y_test]
 
+
 # normalize between 0-1 from 0-255
+X_train = np.array(X_train) / np.std(X_train)
+X_test = np.array(X_test) / np.std(X_test)
 X_train = normalize(X_train)
 X_test = normalize(X_test)
+
 
 total_mean = np.mean(np.array(list(X_train) + list(X_test)))
 
@@ -52,7 +55,7 @@ with tf.variable_scope('svm'):
     optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
 
 
-def train_with_linear():
+def train():
     with tf.Session() as sess:
         epochs = 0
         total_epochs = 500
@@ -119,10 +122,10 @@ def image_reshaper(model_path):
             image = image.reshape((28, 28))
             plt.title('Image {0}'.format(index))
             plt.axis('off')
-            plt.imshow(image)
+            plt.imshow(image, cmap='gray', vmin=0, vmax=255)
             index += 1
         plt.show()
 
 
-image_reshaper("models/21_superrene.cpkt")
-#train_with_linear()
+#image_reshaper("models/21_superrene.cpkt")
+train()
