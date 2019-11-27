@@ -1,5 +1,5 @@
-#import os
-#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# import os
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
 import numpy as np
 import config
@@ -7,13 +7,25 @@ import load
 import sys
 import matplotlib.pyplot as plt
 
-
-learning_rate = 1e-4
+learning_rate = 0.001
 
 
 def normalize(x):
     x = np.array(x)
     return (x - x.min()) / (np.ptp(x))
+
+
+def normalize_anton(X):
+    for i in range(X.shape[0]):
+        # zero mean
+        X[i, ...] = X[i, ...] - np.mean(X[i, ...].ravel())
+        X[i, ...] = X[i, ...] / np.std(X[i, ...].ravel())
+    return X
+
+
+def batch(X, d, batch_size):
+    permutation = np.random.randint(0, X.shape[0], batch_size)
+    return X[permutation, ...], d[permutation, ...]
 
 
 # load data
@@ -36,19 +48,20 @@ y_test = np.eye(characters)[y_test]
 
 total_mean = np.mean(np.array(list(X_train) + list(X_test)))
 
+'''
 # remove mean to get zero mean for each image
 X_train = X_train - total_mean
 X_test = X_test - total_mean
-
-
 # normalize between 0-1 from 0-255
 X_train = np.array(X_train) / np.std(X_train)
 X_test = np.array(X_test) / np.std(X_test)
 X_train = normalize(X_train)
 X_test = normalize(X_test)
+'''
+X_train = normalize_anton(X_train)
+X_test = normalize_anton(X_test)
 
-
-X = tf.placeholder(tf.float32, [None, X_train.shape[1], X_train.shape[2], 1], name='Inputs',)
+X = tf.placeholder(tf.float32, [None, X_train.shape[1], X_train.shape[2], 1], name='Inputs', )
 y = tf.placeholder(tf.float32, [None, characters], name='Labels')
 
 
@@ -67,7 +80,8 @@ def conv2d_layer(name, x_dim, y_dim, input_dim, filters, input_layer):
     :param input_layer: the input layer to connect to
     """
     with tf.variable_scope(('conv2d_' + name)):
-        W = tf.get_variable(name, [x_dim, y_dim, input_dim, filters], initializer=tf.contrib.layers.xavier_initializer())
+        W = tf.get_variable(name, [x_dim, y_dim, input_dim, filters],
+                            initializer=tf.contrib.layers.xavier_initializer())
         c = tf.nn.conv2d(input_layer, W, strides=[1, 1, 1, 1], padding='SAME')
         b = tf.get_variable('b_{0}'.format(name), [filters])
         hc1 = tf.nn.leaky_relu(c + b)
@@ -91,16 +105,17 @@ conv_0 = conv2d_layer("0", 5, 5, 1, conv_0_filters, X)
 max_pool_0 = max_pool_2x2(conv_0)
 conv_1 = conv2d_layer("1", 3, 3, conv_0_filters, conv_1_filters, max_pool_0)
 max_pool_1 = max_pool_2x2(conv_1)
-conv_2 = conv2d_layer("2", 2, 2,conv_1_filters, conv_2_filters, max_pool_1)
-dense_0 = dense_layer("0", 7*7*conv_2_filters, conv_2, dense_0_nodes)
+conv_2 = conv2d_layer("2", 2, 2, conv_1_filters, conv_2_filters, max_pool_1)
+dense_0 = dense_layer("0", 7 * 7 * conv_2_filters, conv_2, dense_0_nodes)
 y_logits = dense_layer("1", dense_0_nodes, dense_0, characters)
 
 cost = tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=y_logits)
 
-optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
+#optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cost)
 
+optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
 # IT JUST WORKS!!!!
-# optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
+#optimizer = tf.train.RMSPropOptimizer(learning_rate).minimize(cost)
 
 
 def train():
@@ -108,7 +123,7 @@ def train():
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
         epochs = 0
-        total_epochs = 80
+        total_epochs = 35
 
         cost_history = []
         accuracy_history = []
@@ -123,25 +138,29 @@ def train():
         while True:
             iteration = 0
             for i in range(0, len(X_train_chunked)):
-                feed_dict = {X:X_train_chunked[i], y: y_train_chunked[i]}
+                feed_dict = {X: X_train_chunked[i], y: y_train_chunked[i]}
                 sess.run(optimizer, feed_dict=feed_dict)
                 iteration += 1
 
+            res_train = sess.run(y_logits, feed_dict=feed_dict)
+            acc_eval = (np.sum(np.sum(np.argmax(res_train, 1) == np.argmax(y_train_chunked[i], 1))).astype(np.float32) \
+                       / X_train_chunked[i].shape[0]) * 100
             current_cost = sess.run(cost, feed_dict=feed_dict)
             average_cost = np.average(current_cost)
-            correct_prediction = tf.equal(tf.argmax(y_logits, 1), tf.argmax(y, 1))
-            accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-            acc_eval = accuracy.eval({X: X_train, y: y_train}) * 100
+
+            #correct_prediction = tf.equal(tf.argmax(y_logits, 1), tf.argmax(y, 1))
+            #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+            #acc_eval = accuracy.eval({X: X_train, y: y_train}) * 100
 
             cost_history.append(average_cost)
             accuracy_history.append(acc_eval)
-            print('average loss: {0}'.format(average_cost))
-            print('Epoch {0}'.format(epochs))
-            print('training accuracy: {0}'.format(acc_eval))
+            print('loss: {1:.2f}\t accuracy: {2:.2f}\t Epoch {0:.2f}'.format(epochs, average_cost, acc_eval))
+
+
+
             epochs += 1
             if epochs == total_epochs:
                 break
-
         fig, ax1 = plt.subplots()
 
         color = 'tab:red'
@@ -166,6 +185,7 @@ def train():
         print("Test accuracy: {0}%".format(evaluated_accuracy))
         saver = tf.train.Saver()
         saver.save(sess=sess, save_path="models/22_cnn.cpkt")
+
 
 # image_reshaper("models/21_superrene.cpkt")
 train()
